@@ -1,0 +1,340 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+old mode 100644
+new mode 100755
+index aae3a59..9c144b8
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -72,11 +72,9 @@ if(WIN32)
+ 	set(EXAMPLE_CONF_DIR ".")
+ 	set(LOCALEDIR "locale")
+ elseif(APPLE)
+-	# Random placeholders; this isn't usually used and may not work
+-	# See https://github.com/toabi/minetest-mac/
+-	set(SHAREDIR "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}")
+-	set(BINDIR "bin")
+-	set(DOCDIR "share/doc/${PROJECT_NAME}")
++	set(SHAREDIR ".")
++	set(BINDIR "./bin")
++	set(DOCDIR "./doc/${PROJECT_NAME}")
+ 	set(EXAMPLE_CONF_DIR ${DOCDIR})
+ 	set(LOCALEDIR "locale")
+ elseif(UNIX) # Linux, BSD etc
+@@ -169,7 +167,7 @@ install(FILES "doc/menu_lua_api.txt" DESTINATION "${DOCDIR}")
+ install(FILES "doc/mapformat.txt" DESTINATION "${DOCDIR}")
+ install(FILES "minetest.conf.example" DESTINATION "${EXAMPLE_CONF_DIR}")
+ 
+-if(UNIX)
++if(UNIX AND NOT APPLE)
+ 	install(FILES "doc/minetest.6" "doc/minetestserver.6" DESTINATION "${MANDIR}/man6")
+ 	install(FILES "misc/minetest.desktop" DESTINATION "${XDG_APPS_DIR}")
+ 	install(FILES "misc/minetest-icon.svg" DESTINATION "${ICONDIR}/hicolor/scalable/apps")
+@@ -208,15 +206,13 @@ if(WIN32)
+ 	# This might be needed for some installer
+ 	#set(CPACK_PACKAGE_EXECUTABLES bin/minetest.exe "Minetest" bin/minetestserver.exe "Minetest Server")
+ elseif(APPLE)
+-	# TODO
+ 	# see http://cmake.org/Wiki/CMake:CPackPackageGenerators#Bundle_.28OSX_only.29
+-	#
+ 	set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${VERSION_STRING}-osx")
+-	set(CPACK_PACKAGE_ICON "")
++	set(CPACK_PACKAGE_ICON ${CMAKE_CURRENT_SOURCE_DIR}/misc/mac/minetest-icon.icns)
+ 	set(CPACK_BUNDLE_NAME ${PROJECT_NAME})
+-	set(CPACK_BUNDLE_ICON "")
+-	set(CPACK_BUNDLE_PLIST "")
+-	set(CPACK_BUNDLE_STARTUP_COMMAND "Contents/MacOS/${PROJECT_NAME}")
++	set(CPACK_BUNDLE_ICON ${CPACK_PACKAGE_ICON})
++	set(CPACK_BUNDLE_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/misc/mac/Info.plist)
++	set(CPACK_BUNDLE_STARTUP_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/misc/mac/minetest-mac.sh)
+ 	set(CPACK_GENERATOR "Bundle")
+ else()
+ 	set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${VERSION_STRING}-linux")
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+old mode 100644
+new mode 100755
+index 6836ad6..6a91230
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -162,7 +162,7 @@ else()
+ 		endif(APPLE)
+ 	endif(BUILD_CLIENT)
+ 	find_package(ZLIB REQUIRED)
+-	set(PLATFORM_LIBS -lpthread -lrt ${CMAKE_DL_LIBS})
++	set(PLATFORM_LIBS -lpthread "-framework CoreFoundation" ${CMAKE_DL_LIBS})
+ 	#set(CLIENT_PLATFORM_LIBS -lXxf86vm)
+ 	# This way Xxf86vm is found on OpenBSD too
+ 	find_library(XXF86VM_LIBRARY Xxf86vm)
+diff --git a/src/jthread/jevent.h b/src/jthread/jevent.h
+old mode 100644
+new mode 100755
+index d31d8e6..1273e3c
+--- a/src/jthread/jevent.h
++++ b/src/jthread/jevent.h
+@@ -31,7 +31,11 @@
+ #ifdef _WIN32
+ #include <windows.h>
+ #else
+-#include <semaphore.h>
++//#include <semaphore.h>
++#include <mach/mach.h>
++#include <mach/task.h>
++#include <mach/semaphore.h>
++#include <sys/semaphore.h>
+ #endif
+ 
+ 
+@@ -39,7 +43,7 @@ class Event {
+ #ifdef _WIN32
+ 	HANDLE hEvent;
+ #else
+-	sem_t sem;
++	semaphore_t sem;
+ #endif
+ 
+ public:
+diff --git a/src/jthread/jsemaphore.h b/src/jthread/jsemaphore.h
+old mode 100644
+new mode 100755
+index bdce2e4..b74bbae
+--- a/src/jthread/jsemaphore.h
++++ b/src/jthread/jsemaphore.h
+@@ -26,8 +26,17 @@
+ #define MAX_SEMAPHORE_COUNT 1024
+ #else
+ #include <pthread.h>
+-#include <semaphore.h>
++//#include <semaphore.h>
++#include <mach/mach.h>
++#include <mach/task.h>
++#include <mach/semaphore.h>
++#include <sys/semaphore.h>
++
++#include <errno.h>
++#include <time.h>
++
+ #endif
++//typedef int sem_t;
+ 
+ class JSemaphore {
+ public:
+@@ -45,8 +54,10 @@ class JSemaphore {
+ #if defined(WIN32)
+ 	HANDLE m_hSemaphore;
+ #else
+-	sem_t m_semaphore;
++	semaphore_t m_semaphore;
+ #endif
++    int semcount = 0;
+ };
+ 
++
+ #endif /* JSEMAPHORE_H_ */
+diff --git a/src/jthread/pthread/jevent.cpp b/src/jthread/pthread/jevent.cpp
+old mode 100644
+new mode 100755
+index 26a6fb0..cc95371
+--- a/src/jthread/pthread/jevent.cpp
++++ b/src/jthread/pthread/jevent.cpp
+@@ -29,6 +29,17 @@
+ 
+ #define UNUSED(expr) do { (void)(expr); } while (0)
+ 
++#undef sem_t
++#define sem_t semaphore_t
++#undef sem_init
++#define sem_init(s,p,c) semaphore_create(mach_task_self(),s,0,c)
++#undef sem_wait
++#define sem_wait(s) semaphore_wait(*s)
++#undef sem_post
++#define sem_post(s) semaphore_signal(*s)
++#undef sem_destroy
++#define sem_destroy(s) semaphore_destroy(mach_task_self(),*s)
++
+ Event::Event() {
+ 	int sem_init_retval = sem_init(&sem, 0, 0);
+ 	assert(sem_init_retval == 0);
+diff --git a/src/jthread/pthread/jsemaphore.cpp b/src/jthread/pthread/jsemaphore.cpp
+old mode 100644
+new mode 100755
+index ee14310..e524805
+--- a/src/jthread/pthread/jsemaphore.cpp
++++ b/src/jthread/pthread/jsemaphore.cpp
+@@ -20,9 +20,57 @@
+ #include <errno.h>
+ #include <sys/time.h>
+ #include "jthread/jsemaphore.h"
++#include <unistd.h>
+ 
+ #define UNUSED(expr) do { (void)(expr); } while (0)
+ 
++
++// from https://github.com/constcast/vermont/blob/master/src/osdep/osx/sem_timedwait.cpp
++
++// Mac OS X timedwait wrapper
++int sem_timedwait_mach(semaphore_t* sem, long timeout_ms) {
++	int retval = 0;
++	mach_timespec_t mts;
++	if (timeout_ms >= 0) {
++		mts.tv_sec = timeout_ms / 1000;
++		mts.tv_nsec = (timeout_ms % 1000) * 1000000;
++	} else {
++		// FIX: If we really wait forever, we cannot shut down VERMONT
++		// this is mac os x specific and does not happen on linux
++		// hence, we just add a small timeout instead of blocking
++		// indefinately
++		mts.tv_sec = 1;
++		mts.tv_nsec = 0;
++	}
++	retval = semaphore_timedwait(*sem, mts);
++	switch (retval) {
++        case KERN_SUCCESS:
++            return 0;
++        case KERN_OPERATION_TIMED_OUT:
++            errno = ETIMEDOUT;
++            break;
++        case KERN_ABORTED:
++            errno = EINTR;
++            break;
++        default:
++            errno =  EINVAL;
++            break;
++	}
++	return -1;
++}
++
++#undef sem_t
++#define sem_t semaphore_t
++#undef sem_init
++#define sem_init(s,p,c) semaphore_create(mach_task_self(),s,0,c)
++#undef sem_wait
++#define sem_wait(s) semaphore_wait(*s)
++#undef sem_post
++#define sem_post(s) semaphore_signal(*s)
++#undef sem_destroy
++#define sem_destroy(s) semaphore_destroy(mach_task_self(),*s)
++
++
+ JSemaphore::JSemaphore() {
+ 	int sem_init_retval = sem_init(&m_semaphore,0,0);
+ 	assert(sem_init_retval == 0);
+@@ -45,16 +93,18 @@ void JSemaphore::Post() {
+ 	int sem_post_retval = sem_post(&m_semaphore);
+ 	assert(sem_post_retval == 0);
+ 	UNUSED(sem_post_retval);
++    semcount++;
+ }
+ 
+ void JSemaphore::Wait() {
+ 	int sem_wait_retval = sem_wait(&m_semaphore);
+ 	assert(sem_wait_retval == 0);
+ 	UNUSED(sem_wait_retval);
++    semcount--;
+ }
+ 
+ bool JSemaphore::Wait(unsigned int time_ms) {
+-	struct timespec waittime;
++	long waittime  = time_ms;
+ 	struct timeval now;
+ 
+ 	if (gettimeofday(&now, NULL) == -1) {
+@@ -62,15 +112,16 @@ bool JSemaphore::Wait(unsigned int time_ms) {
+ 		return false;
+ 	}
+ 
+-	waittime.tv_nsec = ((time_ms % 1000) * 1000 * 1000) + (now.tv_usec * 1000);
+-	waittime.tv_sec  = (time_ms / 1000) + (waittime.tv_nsec / (1000*1000*1000)) + now.tv_sec;
+-	waittime.tv_nsec %= 1000*1000*1000;
++	//waittime.tv_nsec = ((time_ms % 1000) * 1000 * 1000) + (now.tv_usec * 1000);
++	//waittime.tv_sec  = (time_ms / 1000) + (waittime.tv_nsec / (1000*1000*1000)) + now.tv_sec;
++	//waittime.tv_nsec %= 1000*1000*1000;
+ 
+ 	errno = 0;
+-	int sem_wait_retval = sem_timedwait(&m_semaphore,&waittime);
++	int sem_wait_retval = sem_timedwait_mach(&m_semaphore, waittime);
+ 
+ 	if (sem_wait_retval == 0)
+ 	{
++        semcount--;
+ 		return true;
+ 	}
+ 	else {
+@@ -82,9 +133,9 @@ bool JSemaphore::Wait(unsigned int time_ms) {
+ 
+ int JSemaphore::GetValue() {
+ 
+-	int retval = 0;
+-	sem_getvalue(&m_semaphore,&retval);
++	//int retval = 0;
++	//sem_getvalue(&m_semaphore,&retval);
+ 
+-	return retval;
++	return semcount;
+ }
+ 
+diff --git a/src/porting.cpp b/src/porting.cpp
+old mode 100644
+new mode 100755
+index e7bef1d..c01e133
+--- a/src/porting.cpp
++++ b/src/porting.cpp
+@@ -25,10 +25,7 @@
+ 
+ #include "porting.h"
+ 
+-#if defined(__APPLE__)
+-	#include <mach-o/dyld.h>
+-	#include "CoreFoundation/CoreFoundation.h"
+-#elif defined(__FreeBSD__)
++#if defined(__FreeBSD__)
+ 	#include <sys/types.h>
+ 	#include <sys/sysctl.h>
+ #elif defined(_WIN32)
+diff --git a/src/porting.h b/src/porting.h
+old mode 100644
+new mode 100755
+index aaabce4..d3b9758
+--- a/src/porting.h
++++ b/src/porting.h
+@@ -121,6 +121,11 @@
+ 
+ #define PADDING(x, y) ((ALIGNOF(y) - ((uintptr_t)(x) & (ALIGNOF(y) - 1))) & (ALIGNOF(y) - 1))
+ 
++#if defined(__APPLE__)
++	#include <mach-o/dyld.h>
++	#include <CoreFoundation/CoreFoundation.h>
++#endif
++
+ namespace porting
+ {
+ 
+@@ -218,7 +223,11 @@
+ #else // Posix
+ 	#include <sys/time.h>
+ 	#include <time.h>
+-	
++    #ifdef __MACH__
++    #include <mach/clock.h>
++    #include <mach/mach.h>
++    #endif
++
+ 	inline u32 getTimeS()
+ 	{
+ 		struct timeval tv;
+@@ -243,7 +252,18 @@
+ 	inline u32 getTimeNs()
+ 	{
+ 		struct timespec ts;
++        // from http://stackoverflow.com/questions/5167269/clock-gettime-alternative-in-mac-os-x
++#ifdef __MACH__ // OS X does not have clock_gettime, use clock_get_time
++        clock_serv_t cclock;
++        mach_timespec_t mts;
++        host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
++        clock_get_time(cclock, &mts);
++        mach_port_deallocate(mach_task_self(), cclock);
++        ts.tv_sec = mts.tv_sec;
++        ts.tv_nsec = mts.tv_nsec;
++#else
+ 		clock_gettime(CLOCK_REALTIME, &ts);
++#endif
+ 		return ts.tv_sec * 1000000000 + ts.tv_nsec;
+ 	}
+ 	

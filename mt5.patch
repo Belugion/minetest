@@ -1,0 +1,25 @@
+diff --git a/src/jthread/jsemaphore.h b/src/jthread/jsemaphore.h
+index b74bbae..84e7aab 100644
+--- a/src/jthread/jsemaphore.h
++++ b/src/jthread/jsemaphore.h
+@@ -56,7 +56,7 @@ class JSemaphore {
+ #else
+ 	semaphore_t m_semaphore;
+ #endif
+-    int semcount = 0;
++    int semcount;
+ };
+ 
+ 
+diff --git a/src/jthread/pthread/jsemaphore.cpp b/src/jthread/pthread/jsemaphore.cpp
+index e524805..93ec94e 100644
+--- a/src/jthread/pthread/jsemaphore.cpp
++++ b/src/jthread/pthread/jsemaphore.cpp
+@@ -75,6 +75,7 @@ int sem_timedwait_mach(semaphore_t* sem, long timeout_ms) {
+ 	int sem_init_retval = sem_init(&m_semaphore,0,0);
+ 	assert(sem_init_retval == 0);
+ 	UNUSED(sem_init_retval);
++	semcount = 0;
+ }
+ 
+ JSemaphore::~JSemaphore() {
