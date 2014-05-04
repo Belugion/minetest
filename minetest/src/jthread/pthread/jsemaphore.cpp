@@ -75,6 +75,7 @@ JSemaphore::JSemaphore() {
 	int sem_init_retval = sem_init(&m_semaphore,0,0);
 	assert(sem_init_retval == 0);
 	UNUSED(sem_init_retval);
+	semcount = 0;
 }
 
 JSemaphore::~JSemaphore() {

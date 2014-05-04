@@ -56,7 +56,7 @@ private:
 #else
 	semaphore_t m_semaphore;
 #endif
-    int semcount = 0;
+    int semcount;
 };
 
 
