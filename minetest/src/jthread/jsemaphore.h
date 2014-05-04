@@ -26,8 +26,17 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define MAX_SEMAPHORE_COUNT 1024
 #else
 #include <pthread.h>
-#include <semaphore.h>
+//#include <semaphore.h>
+#include <mach/mach.h>
+#include <mach/task.h>
+#include <mach/semaphore.h>
+#include <sys/semaphore.h>
+
+#include <errno.h>
+#include <time.h>
+
 #endif
+//typedef int sem_t;
 
 class JSemaphore {
 public:
@@ -45,8 +54,10 @@ private:
 #if defined(WIN32)
 	HANDLE m_hSemaphore;
 #else
-	sem_t m_semaphore;
+	semaphore_t m_semaphore;
 #endif
+    int semcount = 0;
 };
+
 
 #endif /* JSEMAPHORE_H_ */

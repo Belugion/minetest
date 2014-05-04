@@ -31,7 +31,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
-#include <semaphore.h>
+//#include <semaphore.h>
+#include <mach/mach.h>
+#include <mach/task.h>
+#include <mach/semaphore.h>
+#include <sys/semaphore.h>
 #endif
 
 
@@ -39,7 +43,7 @@ class Event {
 #ifdef _WIN32
 	HANDLE hEvent;
 #else
-	sem_t sem;
+	semaphore_t sem;
 #endif
 
 public:
